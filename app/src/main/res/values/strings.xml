@@ -1,0 +1,11 @@
+<resources>
+    <string name="app_name">Violin Tuner Pro</string>
+    <string name="permission_audio_rationale">This app needs microphone access to detect the pitch of your violin strings for tuning.</string>
+    <string name="permission_denied">Microphone permission is required to tune your violin</string>
+
+    <!-- String names -->
+    <string name="string_g">G String</string>
+    <string name="string_d">D String</string>
+    <string name="string_a">A String</string>
+    <string name="string_e">E String</string>
+</resources>
