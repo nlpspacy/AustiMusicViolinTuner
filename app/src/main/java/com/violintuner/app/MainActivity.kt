@@ -16,6 +16,8 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
@@ -29,6 +31,7 @@ import androidx.compose.ui.graphics.*
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -121,8 +124,14 @@ class AudioManager {
         }, durationMs.toLong())
     }
 
-    fun startListening(onFrequencyDetected: (Double) -> Unit) {
+    fun startListening(context: android.content.Context, onFrequencyDetected: (Double) -> Unit) {
         if (isRecording) return
+
+        // Check for permission before creating AudioRecord
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO)
+            != PackageManager.PERMISSION_GRANTED) {
+            return
+        }
 
         try {
             audioRecord = AudioRecord(
@@ -195,6 +204,7 @@ class AudioManager {
 @Composable
 fun ViolinTunerApp() {
     val context = LocalContext.current
+    val configuration = LocalConfiguration.current
     val audioManager = remember { AudioManager() }
     var selectedString by remember { mutableStateOf(ViolinString.A) }
     var currentFrequency by remember { mutableStateOf(0.0) }
@@ -213,31 +223,68 @@ fun ViolinTunerApp() {
         else -> TuningStatus.FLAT
     }
 
+    // Responsive sizing based on screen height
+    val screenHeight = configuration.screenHeightDp.dp
+    val isVerySmallScreen = screenHeight < 600.dp
+    val isSmallScreen = screenHeight < 700.dp
+
+    // Adjust sizes based on screen size - more aggressive scaling
+    val titlePadding = when {
+        isVerySmallScreen -> 6.dp
+        isSmallScreen -> 8.dp
+        else -> 16.dp
+    }
+    val dialSize = when {
+        isVerySmallScreen -> 160.dp
+        isSmallScreen -> 180.dp
+        else -> 220.dp
+    }
+    val buttonSize = when {
+        isVerySmallScreen -> 60.dp
+        isSmallScreen -> 70.dp
+        else -> 80.dp
+    }
+    val spacing = when {
+        isVerySmallScreen -> 8.dp
+        isSmallScreen -> 12.dp
+        else -> 16.dp
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(16.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
+            .padding(horizontal = 12.dp, vertical = 4.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.SpaceEvenly
     ) {
         // Title
         Text(
             text = "Violin Tuner",
-            style = MaterialTheme.typography.headlineLarge,
+            style = when {
+                isVerySmallScreen -> MaterialTheme.typography.titleLarge
+                isSmallScreen -> MaterialTheme.typography.headlineSmall
+                else -> MaterialTheme.typography.headlineMedium
+            },
             fontWeight = FontWeight.Bold,
-            modifier = Modifier.padding(vertical = 24.dp)
+            modifier = Modifier.padding(vertical = titlePadding)
         )
 
         // String selection buttons
         Row(
-            modifier = Modifier.padding(bottom = 32.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
+            horizontalArrangement = Arrangement.spacedBy(when {
+                isVerySmallScreen -> 6.dp
+                isSmallScreen -> 8.dp
+                else -> 12.dp
+            })
         ) {
             ViolinString.values().forEach { string ->
                 StringButton(
                     string = string,
                     isSelected = selectedString == string,
                     onStringSelected = { selectedString = it },
-                    onPlayTone = { audioManager.playTone(it.frequency) }
+                    onPlayTone = { audioManager.playTone(it.frequency) },
+                    isVerySmallScreen = isVerySmallScreen,
+                    isSmallScreen = isSmallScreen
                 )
             }
         }
@@ -247,19 +294,17 @@ fun ViolinTunerApp() {
             currentFrequency = currentFrequency,
             targetFrequency = selectedString.frequency,
             tuningStatus = tuningStatus,
-            modifier = Modifier
-                .size(280.dp)
-                .padding(bottom = 32.dp)
+            modifier = Modifier.size(dialSize)
         )
 
         // Frequency display
         FrequencyDisplay(
             currentFrequency = currentFrequency,
             targetFrequency = selectedString.frequency,
-            selectedString = selectedString
+            selectedString = selectedString,
+            isVerySmallScreen = isVerySmallScreen,
+            isSmallScreen = isSmallScreen
         )
-
-        Spacer(modifier = Modifier.height(32.dp))
 
         // Listen button
         Button(
@@ -268,13 +313,13 @@ fun ViolinTunerApp() {
                     audioManager.stopListening()
                     isListening = false
                 } else {
-                    audioManager.startListening { frequency ->
+                    audioManager.startListening(context) { frequency ->
                         currentFrequency = frequency
                     }
                     isListening = true
                 }
             },
-            modifier = Modifier.size(120.dp),
+            modifier = Modifier.size(buttonSize),
             shape = CircleShape,
             colors = ButtonDefaults.buttonColors(
                 containerColor = if (isListening)
@@ -284,9 +329,14 @@ fun ViolinTunerApp() {
             )
         ) {
             Text(
-                text = if (isListening) "STOP" else "LISTEN",
-                fontSize = 16.sp,
-                fontWeight = FontWeight.Bold
+                text = if (isListening) "stop" else "tune",
+                fontSize = when {
+                    isVerySmallScreen -> 10.sp
+                    isSmallScreen -> 12.sp
+                    else -> 14.sp
+                },
+                fontWeight = FontWeight.Bold,
+                textAlign = TextAlign.Center
             )
         }
     }
@@ -308,37 +358,63 @@ fun StringButton(
     string: ViolinString,
     isSelected: Boolean,
     onStringSelected: (ViolinString) -> Unit,
-    onPlayTone: (ViolinString) -> Unit
+    onPlayTone: (ViolinString) -> Unit,
+    isVerySmallScreen: Boolean = false,
+    isSmallScreen: Boolean = false
 ) {
+    val buttonSize = when {
+        isVerySmallScreen -> 36.dp
+        isSmallScreen -> 42.dp
+        else -> 48.dp
+    }
+    val fontSize = when {
+        isVerySmallScreen -> 14.sp
+        isSmallScreen -> 16.sp
+        else -> 18.sp
+    }
+    val playButtonHeight = when {
+        isVerySmallScreen -> 24.dp
+        isSmallScreen -> 28.dp
+        else -> 32.dp
+    }
+
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Button(
             onClick = { onStringSelected(string) },
-            modifier = Modifier.size(60.dp),
+            modifier = Modifier.size(buttonSize),
             shape = CircleShape,
             colors = ButtonDefaults.buttonColors(
                 containerColor = if (isSelected)
                     MaterialTheme.colorScheme.primary
                 else
                     MaterialTheme.colorScheme.secondary
-            )
+            ),
+            contentPadding = PaddingValues(0.dp)
         ) {
             Text(
                 text = string.displayName,
-                fontSize = 20.sp,
+                fontSize = fontSize,
                 fontWeight = FontWeight.Bold
             )
         }
 
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(2.dp))
 
         Button(
             onClick = { onPlayTone(string) },
-            modifier = Modifier.width(60.dp),
+            modifier = Modifier
+                .width(buttonSize)
+                .height(playButtonHeight),
             colors = ButtonDefaults.buttonColors(
                 containerColor = MaterialTheme.colorScheme.tertiary
-            )
+            ),
+            contentPadding = PaddingValues(0.dp)
         ) {
-            Text("♪", fontSize = 16.sp)
+            Text("♪", fontSize = when {
+                isVerySmallScreen -> 10.sp
+                isSmallScreen -> 12.sp
+                else -> 14.sp
+            })
         }
     }
 }
@@ -456,25 +532,39 @@ fun TuningDial(
 fun FrequencyDisplay(
     currentFrequency: Double,
     targetFrequency: Double,
-    selectedString: ViolinString
+    selectedString: ViolinString,
+    isVerySmallScreen: Boolean = false,
+    isSmallScreen: Boolean = false
 ) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp),
-        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+            .padding(horizontal = 8.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
         Column(
-            modifier = Modifier.padding(20.dp),
+            modifier = Modifier.padding(when {
+                isVerySmallScreen -> 8.dp
+                isSmallScreen -> 10.dp
+                else -> 12.dp
+            }),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Text(
                 text = "String: ${selectedString.displayName}",
-                style = MaterialTheme.typography.headlineSmall,
+                style = when {
+                    isVerySmallScreen -> MaterialTheme.typography.titleMedium
+                    isSmallScreen -> MaterialTheme.typography.titleLarge
+                    else -> MaterialTheme.typography.headlineSmall
+                },
                 fontWeight = FontWeight.Bold
             )
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(when {
+                isVerySmallScreen -> 4.dp
+                isSmallScreen -> 6.dp
+                else -> 8.dp
+            }))
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -483,31 +573,47 @@ fun FrequencyDisplay(
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(
                         text = "Current",
-                        style = MaterialTheme.typography.labelMedium,
+                        style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Text(
                         text = "${currentFrequency.toInt()} Hz",
-                        style = MaterialTheme.typography.headlineMedium,
+                        style = when {
+                            isVerySmallScreen -> MaterialTheme.typography.titleMedium
+                            isSmallScreen -> MaterialTheme.typography.titleLarge
+                            else -> MaterialTheme.typography.headlineSmall
+                        },
                         fontWeight = FontWeight.Bold
                     )
                 }
 
                 Text(
                     text = "vs",
-                    style = MaterialTheme.typography.headlineSmall,
-                    modifier = Modifier.padding(top = 20.dp)
+                    style = when {
+                        isVerySmallScreen -> MaterialTheme.typography.titleSmall
+                        isSmallScreen -> MaterialTheme.typography.titleMedium
+                        else -> MaterialTheme.typography.titleLarge
+                    },
+                    modifier = Modifier.padding(top = when {
+                        isVerySmallScreen -> 8.dp
+                        isSmallScreen -> 10.dp
+                        else -> 12.dp
+                    })
                 )
 
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(
                         text = "Target",
-                        style = MaterialTheme.typography.labelMedium,
+                        style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Text(
                         text = "${targetFrequency.toInt()} Hz",
-                        style = MaterialTheme.typography.headlineMedium,
+                        style = when {
+                            isVerySmallScreen -> MaterialTheme.typography.titleMedium
+                            isSmallScreen -> MaterialTheme.typography.titleLarge
+                            else -> MaterialTheme.typography.headlineSmall
+                        },
                         fontWeight = FontWeight.Bold
                     )
                 }
@@ -517,7 +623,11 @@ fun FrequencyDisplay(
                 val difference = currentFrequency - targetFrequency
                 val cents = 1200 * log2(currentFrequency / targetFrequency)
 
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(when {
+                    isVerySmallScreen -> 3.dp
+                    isSmallScreen -> 4.dp
+                    else -> 6.dp
+                }))
 
                 Text(
                     text = when {
@@ -525,7 +635,11 @@ fun FrequencyDisplay(
                         cents > 0 -> "SHARP (+${cents.toInt()} cents)"
                         else -> "FLAT (${cents.toInt()} cents)"
                     },
-                    style = MaterialTheme.typography.titleMedium,
+                    style = when {
+                        isVerySmallScreen -> MaterialTheme.typography.labelLarge
+                        isSmallScreen -> MaterialTheme.typography.titleSmall
+                        else -> MaterialTheme.typography.titleMedium
+                    },
                     fontWeight = FontWeight.Bold,
                     color = when {
                         abs(cents) < 5 -> Color(0xFF4CAF50)
